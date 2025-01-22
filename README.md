@@ -11,7 +11,7 @@ flowchart LR
 
 
 #### 対象とするスキャン角度を指定（初期値：-45°〜45°）
-scan_angle_min_ = -M_PI / 4;
+scan_angle_min_ = -M_PI / 4; <br>
 scan_angle_max_ = M_PI / 4;
 
 #### 対象となる距離の上限 [m]
