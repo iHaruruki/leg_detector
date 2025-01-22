@@ -1,4 +1,4 @@
-// leg_detector_with_marker.cpp
+// leg_detector_marker_detect.cpp
 #include <memory>
 #include <vector>
 #include <cmath>
@@ -7,7 +7,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
-#include "visualization_msgs/msg/marker.hpp"  // Marker メッセージ
+#include "visualization_msgs/msg/marker.hpp"  // RViz2用のMarker
 
 using std::placeholders::_1;
 
@@ -23,21 +23,19 @@ public:
   LegDetector()
   : Node("leg_detector")
   {
-    // /scan トピックのサブスクライバー
     subscription_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
       "/scan", 10, std::bind(&LegDetector::scan_callback, this, _1));
 
-    // RViz2 に表示するための marker のパブリッシャー
+    // RViz2用のMarkerパブリッシャーの作成
     marker_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("visualization_marker", 10);
 
-    // 対象とするスキャン角度を指定（例：-45°～45°）
-    scan_angle_min_ = -M_PI / 4;  // -45° [rad]
-    scan_angle_max_ = M_PI / 4;   //  45° [rad]
-
+    // 対象とする角度範囲 [-45°, 45°] (ラジアン)
+    scan_angle_min_ = -M_PI / 4;
+    scan_angle_max_ = M_PI / 4;
     // 対象となる距離の上限 [m]
     distance_threshold_ = 1.0;
 
-    RCLCPP_INFO(this->get_logger(), "スキャン角度範囲: [%.2f, %.2f] [rad], 距離: %.2fm以内",
+    RCLCPP_INFO(this->get_logger(), "スキャン角度範囲: [%.2f, %.2f] [rad], 距離: %.2f m以内",
                 scan_angle_min_, scan_angle_max_, distance_threshold_);
   }
 
@@ -48,33 +46,31 @@ private:
     float angle_increment = msg->angle_increment;
     float msg_angle_min = msg->angle_min;
 
-    // 指定した角度範囲に対応するインデックスを算出
+    // 対象となる角度範囲に対応するインデックスを求める
     int start_index = std::max(0, static_cast<int>(std::ceil((scan_angle_min_ - msg_angle_min) / angle_increment)));
     int end_index   = std::min(static_cast<int>(ranges.size()) - 1,
-                       static_cast<int>(std::floor((scan_angle_max_ - msg_angle_min) / angle_increment)));
+                                 static_cast<int>(std::floor((scan_angle_max_ - msg_angle_min) / angle_increment)));
 
     if (start_index >= end_index) {
       RCLCPP_WARN(this->get_logger(), "指定した角度範囲に有効なデータがありません。");
       return;
     }
 
-    // クラスタリングのための準備
+    // クラスタリング処理の準備
     std::vector<std::vector<ClusterPoint>> leg_clusters;
     std::vector<ClusterPoint> current_cluster;
 
-    // 隣接する点間の距離差がこの値以下なら同一クラスタとみなす（単位: m）
+    // 隣接する点間の差が diff_threshold 以内なら同一クラスタとみなす (単位:m)
     const float diff_threshold = 0.1;
 
-    // 指定した角度範囲内のデータを処理
+    // 指定角度範囲内のデータのみ処理
     for (int i = start_index; i <= end_index; ++i)
     {
       float r = ranges[i];
-      // 無限大や NaN は無視
       if (!std::isfinite(r)) {
         continue;
       }
-
-      // 距離が distance_threshold_ 以内でなければ処理対象外とする
+      // 距離がdistance_threshold_以内以外は除外
       if (r > distance_threshold_) {
         continue;
       }
@@ -98,10 +94,12 @@ private:
       leg_clusters.push_back(current_cluster);
     }
 
-    // 各クラスタごとに足候補を判定し、RViz 用の Marker を作成
+    // 足検出結果の判定
     bool leg_detected = false;
-    int marker_id = 0;  // 複数の marker を表示する場合の識別子
+    int marker_id = 0;  // 複数のマーカーを識別するためのID
+    visualization_msgs::msg::Marker marker;
 
+    // 検出した各クラスタについて処理
     for (const auto & cluster : leg_clusters)
     {
       int idx_start = cluster.front().index;
@@ -116,75 +114,62 @@ private:
       }
       float mean_range = sum_range / cluster.size();
 
-      // クラスタの先頭と最後の角度を算出し、クラスタの中央角度を求める
+      // クラスタの開始角度と終了角度から中央角度を計算
       float angle_start = msg_angle_min + idx_start * angle_increment;
       float angle_end   = msg_angle_min + idx_end * angle_increment;
       float cluster_angle = (angle_start + angle_end) / 2;
 
-      // 物理的な幅（弦の長さ）の計算
+      // 物理的な幅の計算（弦の長さ）
       float physical_width = 2 * mean_range * std::sin(angle_width / 2);
 
-      // 足として判定する条件（例: 幅 0.05～0.3m, 距離1.0m以内）
+      // 足と判定する条件 (例: 幅0.05～0.3 m, 距離1.0 m以内)
       if ((physical_width > 0.05) && (physical_width < 0.3) && (mean_range < distance_threshold_)) {
-        // 足検知があった場合、"足検知" とログに出力
-        RCLCPP_INFO(this->get_logger(), "足検知");
-
-        // RViz 用 Marker を作成
-        visualization_msgs::msg::Marker marker;
-        marker.header.frame_id = msg->header.frame_id; // センサのフレーム (例: "laser")
+        // 足が検出されたと判断
+        leg_detected = true;
+        // RViz2用のMarker作成
+        //visualization_msgs::msg::Marker marker;
+        marker.header.frame_id = msg->header.frame_id;
         marker.header.stamp = this->get_clock()->now();
         marker.ns = "leg_detector";
-        marker.id = marker_id++;  // 識別子はクラスタごとに付与
-
-        // マーカーの種類を SPHERE に設定
+        marker.id = marker_id++;
         marker.type = visualization_msgs::msg::Marker::SPHERE;
         marker.action = visualization_msgs::msg::Marker::ADD;
-
-        // クラスタ中央の座標を計算 (極座標から直交座標に変換)
+        // 極座標から直交座標 (x,y) を計算
         marker.pose.position.x = mean_range * std::cos(cluster_angle);
         marker.pose.position.y = mean_range * std::sin(cluster_angle);
-        marker.pose.position.z = 0.0;  // 平面上と仮定
-
-        // マーカーの姿勢は単位四元数 (回転なし)
-        marker.pose.orientation.x = 0.0;
-        marker.pose.orientation.y = 0.0;
-        marker.pose.orientation.z = 0.0;
+        marker.pose.position.z = 0.0;
         marker.pose.orientation.w = 1.0;
-
-        // マーカーの大きさ (検出箇所の見やすさのために調整)
+        // マーカーサイズ (視認性のために調整)
         marker.scale.x = 0.1;
         marker.scale.y = 0.1;
         marker.scale.z = 0.1;
-
-        // マーカーの色 (例: 緑色)
-        marker.color.a = 1.0;  // 透過度 1.0 (不透明)
+        // マーカーの色 (緑)
+        marker.color.a = 1.0;
         marker.color.r = 0.0;
         marker.color.g = 1.0;
         marker.color.b = 0.0;
 
-        // Marker を RViz2 にパブリッシュ
         marker_pub_->publish(marker);
-
-        leg_detected = true;
       }
     }
 
-    if (!leg_detected) {
-      RCLCPP_DEBUG(this->get_logger(), "指定角度・距離内のスキャンでは足は検出されませんでした。");
+    // 足を検出している場合のみ「足検知」を表示し、
+    // 検出がなかった場合は「不検出」と表示
+    if (leg_detected) {
+      RCLCPP_INFO(this->get_logger(), "足検知");
+    }
+    else {
+      RCLCPP_INFO(this->get_logger(), "不検出");
+      marker.action = visualization_msgs::msg::Marker::DELETE;
+      marker_pub_->publish(marker);
     }
   }
 
-  // サブスクライバー
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr subscription_;
-
-  // Marker パブリッシャー (RViz2 用)
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
 
-  // 対象とするスキャン角度の下限・上限 [rad]
   double scan_angle_min_;
   double scan_angle_max_;
-
-  // 対象となる距離の上限 [m]
   double distance_threshold_;
 };
 
