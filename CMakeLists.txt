@@ -8,12 +8,13 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 add_executable(foot_detection_node src/main.cpp)
 
 ament_target_dependencies(foot_detection_node
   rclcpp
-  geometry_msgs
+  sensor_msgs
 )
 
 install(TARGETS
