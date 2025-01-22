@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(foot_detection)
+project(leg_detector)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -11,16 +11,16 @@ find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 
-add_executable(foot_detection_node src/main.cpp)
+add_executable(leg_detector_node src/main.cpp)
 
-ament_target_dependencies(foot_detection_node
+ament_target_dependencies(leg_detector_node
   rclcpp
   sensor_msgs
   visualization_msgs
 )
 
 install(TARGETS
-  foot_detection_node
+  leg_detector_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
