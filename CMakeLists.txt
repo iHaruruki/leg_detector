@@ -9,12 +9,14 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 add_executable(foot_detection_node src/main.cpp)
 
 ament_target_dependencies(foot_detection_node
   rclcpp
   sensor_msgs
+  visualization_msgs
 )
 
 install(TARGETS
