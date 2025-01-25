@@ -159,7 +159,7 @@ private:
       RCLCPP_INFO(this->get_logger(), "足検知");
     }
     else {
-      RCLCPP_INFO(this->get_logger(), "不検出");
+      RCLCPP_WARN(this->get_logger(), "不検出");
       marker.action = visualization_msgs::msg::Marker::DELETE;
       marker_pub_->publish(marker);
     }
